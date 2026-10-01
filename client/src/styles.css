@@ -1,0 +1,33 @@
+:root {
+  --ink: #1d2433; --muted: #5d667a; --bg: #eef1f6; --card: #fff;
+  --red: #d7263d; --line: #d8dde8; --ok: #1f8a5b;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; padding: 14px 20px; background: var(--red); color: #fff; }
+h1 { margin: 0; font-size: 1.4rem; }
+main { max-width: 820px; margin: 20px auto; padding: 0 16px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+.search { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.bus { display: grid; grid-template-columns: 2fr 1.4fr 1fr auto; gap: 10px; align-items: center; margin-bottom: 0; }
+.bus.active { border-color: var(--red); }
+.bus small { display: block; color: var(--muted); }
+.price { font-weight: 700; }
+input { padding: 10px; border: 1px solid var(--line); border-radius: 6px; font: inherit; min-width: 0; }
+button { font: inherit; cursor: pointer; }
+.primary { background: var(--red); color: #fff; border: 0; border-radius: 6px; padding: 10px 14px; }
+.primary:disabled { opacity: .45; cursor: not-allowed; }
+.link { background: none; border: 0; color: inherit; text-decoration: underline; padding: 4px; }
+.auth { display: grid; gap: 10px; max-width: 360px; margin-top: 10px; }
+.auth .link { color: var(--muted); }
+.picker { background: var(--card); border: 1px solid var(--red); border-top: 0; border-radius: 0 0 10px 10px; padding: 14px; margin-bottom: 12px; display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+.seats { display: grid; grid-template-columns: repeat(4, 44px); gap: 8px; }
+.seat { height: 44px; border: 1px solid var(--ink); background: #fff; border-radius: 6px; }
+.seat:disabled { background: var(--line); border-color: var(--line); color: var(--muted); cursor: not-allowed; }
+.seat.on { background: var(--ink); color: #fff; }
+.err { color: var(--red); margin: 0; }
+.ok { color: var(--ok); font-weight: 600; }
+:focus-visible { outline: 3px solid #ffb703; outline-offset: 2px; }
+@media (max-width: 600px) {
+  .bus, .picker { grid-template-columns: 1fr; }
+}
