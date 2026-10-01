@@ -15,8 +15,10 @@ const bookedSeats = async () =>
 beforeAll(async () => {
   await init();
   const pool = getPool();
-  await pool.query('DELETE FROM booking_seats'); // child tables first (foreign keys)
+  await pool.query('DELETE FROM waitlist'); // child tables first (foreign keys)
+  await pool.query('DELETE FROM booking_seats');
   await pool.query('DELETE FROM bookings');
+  await pool.query("DELETE FROM buses WHERE operator = 'Test Bus'");
   await pool.query('DELETE FROM users');
   bus = (await request(app).get('/api/buses?from=Hyderabad&to=Bengaluru')).body[0];
 });
@@ -97,5 +99,63 @@ describe('booking', () => {
     expect(res.body).toHaveLength(1);
     expect(res.body[0].seats).toEqual([1, 2]);
     expect(res.body[0].total).toBe(bus.price * 2);
+  });
+});
+
+describe('connecting routes', () => {
+  test('requires from, to and a valid date', async () => {
+    const res = await request(app).get('/api/connections?from=Hyderabad&to=Chennai');
+    expect(res.status).toBe(400);
+  });
+
+  test('finds valid one-transfer itineraries', async () => {
+    const res = await request(app).get('/api/connections?from=Hyderabad&to=Chennai&date=2030-01-15');
+    expect(res.status).toBe(200);
+    expect(res.body.length).toBeGreaterThan(0);
+    for (const t of res.body) {
+      expect(t.legs[0].bus.to).toBe(t.legs[1].bus.from); // the legs really connect
+      expect(t.layoverMinutes).toBeGreaterThanOrEqual(60);
+      expect(t.layoverMinutes).toBeLessThanOrEqual(480);
+    }
+    const times = res.body.map((t) => t.totalMinutes);
+    expect(times).toEqual([...times].sort((a, b) => a - b)); // fastest first
+  });
+});
+
+describe('seat suggestions, cancellation and waitlist', () => {
+  let tiny, tokenB, bookingA;
+  const as = (t) => ({ Authorization: `Bearer ${t}` });
+
+  beforeAll(async () => {
+    await getPool().query("INSERT INTO buses (operator, type, from_city, to_city, departs, arrives, price, total_seats) VALUES ('Test Bus', 'AC', 'TestA', 'TestB', '10:00', '12:00', 100, 2)");
+    tiny = (await request(app).get('/api/buses?from=TestA&to=TestB')).body[0];
+    tokenB = (await request(app).post('/api/auth/register').send({ name: 'Second', email: 'second@example.com', password: 'secret123' })).body.token;
+  });
+
+  test('suggests free seats together, skipping booked ones', async () => {
+    const res = await request(app).get(`/api/buses/${bus._id}/suggest?date=${date}&count=2`); // seats 1,2 are booked above
+    expect(res.body.seats).toEqual([3, 4]);
+  });
+
+  test('a user cannot cancel someone else\'s booking', async () => {
+    const r = await request(app).post('/api/bookings').set(as(token)).send({ busId: tiny._id, date, seats: [1, 2] });
+    expect(r.status).toBe(201);
+    bookingA = r.body._id;
+    expect((await request(app).delete(`/api/bookings/${bookingA}`).set(as(tokenB))).status).toBe(404);
+  });
+
+  test('joins the waitlist when the bus is full', async () => {
+    const res = await request(app).post('/api/waitlist').set(as(tokenB)).send({ busId: tiny._id, date, count: 2 });
+    expect(res.status).toBe(201);
+    expect(res.body.position).toBe(1);
+  });
+
+  test('cancelling frees the seats and books the first person in line', async () => {
+    const res = await request(app).delete(`/api/bookings/${bookingA}`).set(as(token));
+    expect(res.status).toBe(200);
+    expect(res.body.promoted).toHaveLength(1);
+    const mine = (await request(app).get('/api/bookings').set(as(tokenB))).body;
+    expect(mine[0].seats).toEqual([1, 2]);
+    expect((await request(app).get('/api/waitlist').set(as(tokenB))).body[0].status).toBe('confirmed');
   });
 });

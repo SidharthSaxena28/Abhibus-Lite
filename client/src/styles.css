@@ -31,3 +31,7 @@ button { font: inherit; cursor: pointer; }
 @media (max-width: 600px) {
   .bus, .picker { grid-template-columns: 1fr; }
 }
+
+.seat.held { background: #ffe3a3; border-color: #d99a00; color: var(--ink); }
+.toolbar { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.toolbar input { width: 64px; }

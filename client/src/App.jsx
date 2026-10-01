@@ -61,25 +61,62 @@ function BusCard({ bus, onSelect, active }) {
   );
 }
 
+const hm = (m) => `${Math.floor(m / 60)}h ${m % 60}m`;
+
+function TripCard({ trip, onSelect }) {
+  const [a, b] = trip.legs.map((l) => l.bus);
+  return (
+    <div className="card bus">
+      <div>
+        <strong>{a.from} → {trip.via} → {b.to}</strong>
+        <small>{a.operator} {a.departs}, then {b.operator} {b.departs}</small>
+      </div>
+      <div className="times">{hm(trip.totalMinutes)} total<small>{hm(trip.layoverMinutes)} layover in {trip.via}</small></div>
+      <div className="price">₹{trip.totalPrice}</div>
+      <button className="primary" onClick={() => onSelect(trip)}>Book both legs</button>
+    </div>
+  );
+}
+
 function Trips() {
   const { token } = useAuth();
   const [trips, setTrips] = useState(null);
-  useEffect(() => {
-    fetch('/api/bookings', { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.json())
-      .then(setTrips);
-  }, [token]);
+  const [wait, setWait] = useState([]);
+  const h = { Authorization: `Bearer ${token}` };
+  const load = () => {
+    fetch('/api/bookings', { headers: h }).then((r) => r.json()).then(setTrips);
+    fetch('/api/waitlist', { headers: h }).then((r) => r.json()).then(setWait);
+  };
+  useEffect(load, [token]);
+  const cancel = async (url) => {
+    await fetch(url, { method: 'DELETE', headers: h });
+    load();
+  };
 
   if (!trips) return <p>Loading your trips…</p>;
-  if (!trips.length) return <p>No trips yet. Search a route to book your first one.</p>;
-  return trips.map((t) => (
-    <div className="card bus" key={t._id}>
-      <div><strong>{t.bus?.from} to {t.bus?.to}</strong><small>{t.bus?.operator}</small></div>
-      <div className="times">{t.date}</div>
-      <div>Seats {t.seats.join(', ')}</div>
-      <div className="price">₹{t.total}</div>
-    </div>
-  ));
+  const waiting = wait.filter((w) => w.status !== 'cancelled');
+  return (
+    <>
+      {!trips.length && <p>No trips yet. Search a route to book your first one.</p>}
+      {trips.map((t) => (
+        <div className="card bus" key={t._id}>
+          <div><strong>{t.bus?.from} to {t.bus?.to}</strong><small>{t.bus?.operator}</small></div>
+          <div className="times">{t.date}</div>
+          <div className="price">Seats {t.seats.join(', ')} · ₹{t.total}</div>
+          <button className="link" onClick={() => cancel('/api/bookings/' + t._id)}>Cancel</button>
+        </div>
+      ))}
+      {waiting.length > 0 && <h3>Waitlist</h3>}
+      {waiting.map((w) => (
+        <div className="card bus" key={w._id}>
+          <div><strong>{w.bus.from} to {w.bus.to}</strong><small>{w.bus.operator}</small></div>
+          <div className="times">{w.date}</div>
+          <div>{w.status === 'waiting' ? `#${w.position} in line for ${w.count} seat(s)` : 'Confirmed: see your trips'}</div>
+          {w.status === 'waiting' && <button className="link" onClick={() => cancel('/api/waitlist/' + w._id)}>Leave</button>}
+        </div>
+      ))}
+    </>
+  );
 }
 
 function Main() {
@@ -89,14 +126,30 @@ function Main() {
   const [buses, setBuses] = useState(null);
   const [bus, setBus] = useState(null);
   const [done, setDone] = useState(false);
+  const [trips, setTrips] = useState(null);
+  const [conn, setConn] = useState(null);
   const set = (k) => (e) => setQ({ ...q, [k]: e.target.value });
+
+  useEffect(() => { // shared link (?bus=ID&date=YYYY-MM-DD) opens that bus's live seat map
+    const p = new URLSearchParams(location.search);
+    if (!p.get('bus')) return;
+    fetch('/api/buses/' + p.get('bus')).then((r) => (r.ok ? r.json() : null)).then((b) => {
+      if (!b) return;
+      if (p.get('date')) setQ((x) => ({ ...x, date: p.get('date') }));
+      setBuses([b]);
+      setBus(b);
+    });
+  }, []);
 
   const search = async (e) => {
     e.preventDefault();
     setBus(null);
+    setConn(null);
     setDone(false);
     const params = new URLSearchParams({ from: q.from, to: q.to });
     setBuses(await fetch('/api/buses?' + params).then((r) => r.json()));
+    const found = await fetch('/api/connections?' + new URLSearchParams(q)).then((r) => r.json());
+    setTrips(Array.isArray(found) ? found : []);
   };
 
   return (
@@ -119,13 +172,26 @@ function Main() {
               <button className="primary">Search buses</button>
             </form>
             {done && <p className="ok">Booked! Find it under My trips.</p>}
-            {buses && !buses.length && <p>No buses on this route. Try Hyderabad to Bengaluru.</p>}
+            {buses && !buses.length && !trips?.length && <p>No buses on this route. Try Hyderabad to Chennai.</p>}
             {buses?.map((b) => (
               <div key={b._id}>
-                <BusCard bus={b} active={bus?._id === b._id} onSelect={setBus} />
+                <BusCard bus={b} active={bus?._id === b._id} onSelect={(b2) => { setConn(null); setBus(b2); }} />
                 {bus?._id === b._id && (token
                   ? <SeatPicker bus={b} date={q.date} token={token} onBooked={() => { setBus(null); setDone(true); }} />
                   : <AuthForm />)}
+              </div>
+            ))}
+            {trips?.length > 0 && <h3>With a transfer</h3>}
+            {trips?.map((t, i) => (
+              <div key={i}>
+                <TripCard trip={t} onSelect={(trip) => { setBus(null); setConn({ trip, leg: 0 }); }} />
+                {conn?.trip === t && (token ? (
+                  <>
+                    <p className="ok">Leg {conn.leg + 1} of 2: {t.legs[conn.leg].bus.from} → {t.legs[conn.leg].bus.to} on {t.legs[conn.leg].date}</p>
+                    <SeatPicker key={conn.leg} bus={t.legs[conn.leg].bus} date={t.legs[conn.leg].date} token={token}
+                      onBooked={() => (conn.leg === 0 ? setConn({ ...conn, leg: 1 }) : (setConn(null), setDone(true)))} />
+                  </>
+                ) : <AuthForm />)}
               </div>
             ))}
           </>
